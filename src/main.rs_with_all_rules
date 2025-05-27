@@ -1,0 +1,502 @@
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+use std::fs::File;
+use std::io::{self, BufRead};
+use std::path::Path;
+use std::collections::HashSet;
+
+struct Zone {
+    sum: i32,
+    points: Vec<[i32; 2]>,
+    done: bool,
+}
+
+fn main() {
+    let mut zones: Vec<Zone> = Vec::new();
+    let filename = "input";
+    let mut matrix = add_zones(&mut zones, filename).unwrap();
+    let n = matrix.len();
+    let mut is_discarded: Vec<Vec<bool>> = vec![vec![false; n]; n];
+    let mut is_confirmed: Vec<Vec<bool>> = vec![vec![false; n]; n];
+
+    print_matrix(&matrix, &is_discarded, &is_confirmed);
+
+    //solve
+    let mut pending = count_not_discarded_or_not_confirmed(&is_discarded, &is_confirmed, n);
+    println!("Pending: {}", pending);
+
+    while pending > 0 {
+       let mut last_pending = pending;
+
+        // Run all the rules to discard elements
+        for z in zones.iter_mut() {
+            if z.done { continue; }
+            //rule_1(&matrix, &z, &mut is_discarded);
+            //rule_2(&matrix, z, &is_discarded, &mut is_confirmed);
+            //rule_3(&matrix, z, &is_discarded, &mut is_confirmed);
+            //rule_4(&matrix, z, &mut is_discarded, &mut is_confirmed);
+            rule_6(&matrix, z, &mut is_discarded, &mut is_confirmed);
+            //rule_7(&matrix, z, &mut is_discarded, &mut is_confirmed);
+        }
+
+        // check if any elements were discarded
+        pending = count_not_discarded_or_not_confirmed(&is_discarded, &is_confirmed, n);
+        println!("Pending: {}", pending);
+
+        if pending == last_pending {
+            println!("Was not able to discard or confirm any more elements");
+            print_matrix(&matrix, &is_discarded, &is_confirmed);
+            break;
+        }
+    }
+
+    println!("solved!");
+    print_matrix(&matrix, &is_discarded, &is_confirmed);
+}
+
+fn combine(
+    input: &[[i32; 2]],
+    r: usize,
+    current: &mut Vec<[i32; 2]>,
+    output: &mut Vec<Vec<[i32; 2]>>
+) {
+    if current.len() == r {
+        output.push(current.clone());
+        return;
+    }
+
+    let start = if current.is_empty() {
+        0
+    } else {
+        let last_index = input.iter().position(|x| x == current.last().unwrap()).unwrap();
+        last_index + 1
+    };
+
+    for i in start..input.len() {
+        current.push(input[i]);
+        combine(input, r, current, output);
+        current.pop();
+    }
+}
+
+fn print_zone(zone: &Zone, matrix: &Vec<Vec<i32>>, is_discarded: &Vec<Vec<bool>>, is_confirmed: &Vec<Vec<bool>>) {
+    println!("Zone sum: {}", zone.sum);
+    for point in zone.points.iter() {
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if is_discarded[i][j] {
+            print!("D[{},{}]={:?} ", i, j, matrix[i][j]);
+        } else if is_confirmed[i][j] {
+            print!("o[{},{}]={:?} ", i, j, matrix[i][j]);
+        } else {
+            print!("?[{},{}]={:?} ", i, j, matrix[i][j]);
+        }
+    }
+    println!();
+}
+
+// rule 7: if all not discarded points sum is equal to zone sum 
+// confirm all non confirmed points and mark zone as done
+fn rule_7(matrix: &Vec<Vec<i32>>, zone: &mut Zone, is_discarded: &mut Vec<Vec<bool>>, is_confirmed: &mut Vec<Vec<bool>>) {
+    let mut sum = 0;
+    for point in zone.points.iter() {
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if is_discarded[i][j] { continue; }
+        sum += matrix[i][j];
+    }
+    if sum == zone.sum {
+        for point in zone.points.iter() {
+            let i = point[0] as usize;
+            let j = point[1] as usize;
+            if is_discarded[i][j] { continue; }
+            if is_confirmed[i][j] { continue; }
+            is_confirmed[i][j] = true;
+            println!("Confirming element at ({}, {}): {} - Rule 7", i, j, matrix[i][j]);
+        }
+        zone.done = true;
+    }
+}
+
+// rule 6: confirm point, if all combinations that total the zone sum contain x
+fn rule_6(matrix: &Vec<Vec<i32>>, zone: &mut Zone, is_discarded: &mut Vec<Vec<bool>>, is_confirmed: &mut Vec<Vec<bool>>) {
+    //print_zone(zone, matrix, is_discarded, is_confirmed);
+    //is_discarded[0][0] = true;
+    //is_confirmed[0][1] = true;
+    //is_confirmed[1][0] = true;
+    //print_zone(zone, matrix, is_discarded, is_confirmed);
+
+    //println!("target sum = {}", zone.sum);
+
+    let results = valid_combinations(zone, is_discarded, is_confirmed);
+
+    //filter from results ones that sum matches for zone.sum
+    let filtered: Vec<Vec<[i32; 2]>> = results.clone().into_iter()
+    .filter(|combo| {
+        let sum: i32 = combo.iter()
+            .map(|[i, j]| matrix[*i as usize][*j as usize])
+            .sum();
+        sum == zone.sum
+    })
+    .collect();
+
+    //println!("{:?} ",filtered);
+
+    if filtered.is_empty() {
+        //println!("No vectors match the sum condition.");
+        return;
+    }
+
+    //confirmed common points
+
+    let mut iter = filtered.clone().into_iter();
+    let first_set: HashSet<_> = iter.next().unwrap().into_iter().collect();
+
+    let common = iter.fold(first_set, |acc, v| {
+        let current_set: HashSet<_> = v.into_iter().collect();
+        acc.intersection(&current_set).cloned().collect()
+    });
+
+    //println!("Common elements: {:?}", common);
+    for c in common.iter() {
+        let i = c[0] as usize;
+        let j = c[1] as usize;
+        if is_confirmed[i][j] == false {
+            is_confirmed[i][j] = true;
+            println!("Confirming element at ({}, {}): {} - Rule 6", i, j, matrix[i][j]);
+        }
+    }
+
+    //discard point not found in any filtered result
+    // Step 1: Collect all points from original result into a set
+    let mut original_points: HashSet<(i32, i32)> = HashSet::new();
+    for combo in results {
+        for p in combo {
+            original_points.insert(p.into());
+        }
+    }
+    //println!("list original: {:?}",original_points);
+
+    // Step 2: Collect all points from filtered into a set
+    let mut filtered_points: HashSet<(i32, i32)> = HashSet::new();
+    for combo in filtered {
+        for p in combo {
+            filtered_points.insert(p.into());
+        }
+    }
+    //println!("list filtered: {:?}",filtered_points);
+
+
+    // Step 3: Convert back to tobe_discarded: Vec<[i32; 2]>
+    // tobe_discarded are all points in original_points that are not in filtered_points
+    let tobe_discarded: Vec<[i32; 2]> = original_points
+        .difference(&filtered_points)
+        .map(|&(i, j)| [i, j])
+        .collect();
+
+    //println!("Points to be discarded: {:?}", tobe_discarded);
+
+    for p in tobe_discarded.iter() {
+        let i = p[0] as usize;
+        let j = p[1] as usize;
+        if !is_discarded[i][j] {
+            is_discarded[i][j] = true;
+            println!("Discarding element at ({}, {}): {} - Rule 6", i, j, matrix[i][j]);
+        }
+    }
+
+}
+
+fn valid_combinations(
+    zone: &Zone,
+    is_discarded: &Vec<Vec<bool>>,
+    is_confirmed: &Vec<Vec<bool>>
+) -> Vec<Vec<[i32; 2]>> {
+    // 1. Filter out discarded points
+    let valid_points: Vec<[i32; 2]> = zone.points
+        .iter()
+        .cloned()
+        .filter(|[i, j]| !is_discarded[*i as usize][*j as usize])
+        .collect();
+
+    // 2. Determine which of the valid points are confirmed
+    let confirmed_points: Vec<[i32; 2]> = valid_points
+        .iter()
+        .cloned()
+        .filter(|[i, j]| is_confirmed[*i as usize][*j as usize])
+        .collect();
+
+    let mut all_combinations = Vec::new();
+
+    // 3. Generate all non-empty combinations
+    for r in 1..=valid_points.len() {
+        combine(&valid_points, r, &mut Vec::new(), &mut all_combinations);
+    }
+
+    // 4. Filter combinations to only those that contain all confirmed points
+    let filtered = all_combinations.into_iter().filter(|combo| {
+        confirmed_points.iter().all(|cp| combo.contains(cp))
+    }).collect();
+
+    filtered
+}
+
+// rule 5: descartar si no puedo armar una combinacion de puntos con x que sumar la zona
+
+// rule 4: if all pairs of points that contain point x sum a value greater than the zone sum,
+// discard point x
+fn rule_4(matrix: &Vec<Vec<i32>>, zone: &mut Zone, is_discarded: &mut Vec<Vec<bool>>, is_confirmed: &mut Vec<Vec<bool>>) {
+    
+    let mut partial_sum = zone.sum;
+
+    //remove all confirmed points from the sum
+    for point in zone.points.iter(){
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if is_confirmed[i][j] {
+            partial_sum -= matrix[i][j];
+        }
+    }
+    //print_zone(&zone, &matrix, &is_discarded, &is_confirmed);
+    //println!("with partial sum: {}", partial_sum);
+
+    //select one point each time
+    for point2 in zone.points.iter() {
+        let x = point2[0] as usize;
+        let y = point2[1] as usize;
+        if is_discarded[x][y] || is_confirmed[x][y] {
+            continue;
+        }
+        //println!("Checking point ({}, {}) with value: {}", x, y, matrix[x][y]);
+
+        let mut drop_point2 = false;
+        for point3 in zone.points.iter() {
+            let i = point3[0] as usize;
+            let j = point3[1] as usize;
+            //println!("Checking against point ({}, {}) with value: {}", i, j, matrix[i][j]);
+            if is_discarded[i][j] || is_confirmed[i][j] || (x == i && y == j) || matrix[x][y] == partial_sum {
+                //println!("Skipping");
+                //if is_discarded[i][j] { println!("--> Point ({}, {}) is already discarded", i, j); }
+                //else if is_confirmed[i][j] { println!("--> Point ({}, {}) is already confirmed", i, j); }
+                //else if x == i && y == j { println!("--> Point 1 and 2 are the same"); }
+                //else if matrix[x][y] == partial_sum { println!("--> Point ({}, {}) value is = partial_sum", i, j); }
+                continue;
+            }
+            
+            //check if the sum of the two points is lower than the zone sum
+            //println!("Comparing {} + {} < {}", matrix[x][y], matrix[i][j], partial_sum);
+            if (matrix[x][y] + matrix[i][j]) <= partial_sum {
+                drop_point2 = false;
+                //println!("Keeping");
+                break;
+            } else {
+                drop_point2 = true;
+            }              
+        }
+        if drop_point2 {
+            is_discarded[x][y] = true;
+            println!("Discarding element at ({}, {}): {} - Rule 4", x, y, matrix[x][y]);
+            break;
+        }
+    }
+}
+
+// rule 3: If the sum of all the not discarderd points but one in a zone is lower than the zone sum 
+// minus the value of the point, confirm that point.
+fn rule_3(matrix: &Vec<Vec<i32>>, zone: &mut Zone, is_discarded: &Vec<Vec<bool>>, is_confirmed: &mut Vec<Vec<bool>>) {
+    //print_zone(&zone, &matrix, &is_discarded, &is_confirmed);
+    for point in zone.points.iter() {
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if is_discarded[i][j] || is_confirmed[i][j] {
+            continue;
+        }
+    
+        let mut sum_other_points = 0;
+        for point2 in zone.points.iter() {
+            let i2 = point2[0] as usize;
+            let j2 = point2[1] as usize;
+            if is_discarded[i2][j2] || (i == i2 && j == j2) {
+                continue;
+            }   
+            sum_other_points += matrix[i2][j2];         
+        }
+        if sum_other_points < zone.sum {
+            is_confirmed[i][j] = true;
+            println!("Confirming element at ({}, {}): {} - Rule 3", i, j, matrix[i][j]);
+        }
+    }
+}
+
+// rule 2: If the sum of the zone points (not disabled) exactly matches the zone sum,
+// confirm all elements in that zone and mark zone as done.
+fn rule_2(matrix: &Vec<Vec<i32>>, zone: &mut Zone, is_discarded: &Vec<Vec<bool>>, is_confirmed: &mut Vec<Vec<bool>>) {
+    let mut sum = 0;
+    for point in zone.points.iter() {
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if !is_discarded[i][j] {
+            sum += matrix[i][j];
+        }
+    }
+    if sum == zone.sum {
+        for point in zone.points.iter() {
+            let i = point[0] as usize;
+            let j = point[1] as usize;
+            if !is_discarded[i][j] {
+                is_confirmed[i][j] = true;
+                println!("Confirming element at ({}, {}): {} - Rule 2", i, j, matrix[i][j]);
+            }
+        }
+        zone.done = true;
+    }
+}
+
+//rule 1: Discard points in zone that are greater than the zone sum
+fn rule_1(matrix: &Vec<Vec<i32>>, zone: &Zone, is_discarded: &mut Vec<Vec<bool>>) {
+    for point in zone.points.iter() {
+        let i = point[0] as usize;
+        let j = point[1] as usize;
+        if !is_discarded[i][j] && matrix[i][j] > zone.sum {
+            is_discarded[i][j] = true;
+            println!("Discarding element at ({}, {}): {} - Rule 1", i, j, matrix[i][j]);
+        }
+    }
+}
+
+fn count_not_discarded_or_not_confirmed(
+    is_discarded: &Vec<Vec<bool>>,
+    is_confirmed: &Vec<Vec<bool>>,
+    n: usize,
+) -> i32 {
+    let mut count = 0;
+    for i in 0..n {
+        for j in 0..n {
+            if !is_discarded[i][j] && !is_confirmed[i][j] {
+                count += 1;
+            }
+        }
+    }
+    return count;
+}
+
+fn print_matrix(matrix: &Vec<Vec<i32>>, is_discarded: &Vec<Vec<bool>>, is_confirmed: &Vec<Vec<bool>>) {
+    let n = matrix.len();
+    for i in (0..n).rev() {
+        for j in 0..n {
+            if is_confirmed[i][j] {
+                print!("({:?})", matrix[i][j]);
+            } else if is_discarded[i][j] {
+                print!(" X ");
+            } else {
+                print!(" {:?} ", matrix[i][j]);
+            }
+        }
+    println!();
+    }
+}
+
+fn add_zones(zones: &mut Vec<Zone>, filename: &str) -> Result<Vec<Vec<i32>>, std::io::Error> {
+    let path = Path::new(filename);
+    let file = File::open(path)?;
+    let mut lines = io::BufReader::new(file).lines();
+
+    // Read the size of the matrix
+    let n: usize = lines.next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing size line"))??
+        .trim()
+        .parse()
+        .expect("Invalid number for matrix size");
+
+    // Read column sums
+    let column_sums: Vec<i32> = lines.next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing column sums"))??
+        .split_whitespace()
+        .map(|s| s.parse().expect("Invalid number in column sums"))
+        .collect();
+
+    // add columns to the zones
+    for i in 0..n {
+        let mut column = Zone {
+            sum: column_sums[i],
+            points: Vec::new(),
+            done: false,
+        };
+        for j in 0..n { column.points.push([j as i32, i as i32]); } 
+        zones.push(column);
+    }
+
+    // Read row sums (from bottom to top)
+    let row_sums: Vec<i32> = lines.next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing row sums"))??
+        .split_whitespace()
+        .map(|s| s.parse().expect("Invalid number in row sums"))
+        .collect();
+
+    // add rows to the zones
+    for j in 0..n {
+        let mut row = Zone {
+            sum: row_sums[j],
+            points: Vec::new(),
+            done: false,
+        };
+        for i in 0..n { row.points.push([j as i32, i as i32]); }
+        zones.push(row);
+    }
+
+    // Read the actual grid data
+    let mut matrix: Vec<Vec<i32>> = Vec::with_capacity(n);
+    for _ in 0..n {
+        let row: Vec<i32> = lines.next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing matrix row"))??
+            .split_whitespace()
+            .map(|s| s.parse().expect("Invalid number in matrix row"))
+            .collect();
+        matrix.push(row);
+    }
+
+    // Read the zone distribution
+    let mut zone_distribution: Vec<Vec<i32>> = Vec::with_capacity(n);
+    for _ in 0..n {
+        let zone_row: Vec<i32> = lines.next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing zone distribution row"))??
+            .split_whitespace()
+            .map(|s| s.parse().expect("Invalid number in zone distribution row"))
+            .collect();
+        zone_distribution.push(zone_row);
+    }
+
+    let total_zones = zone_distribution
+    .iter()
+    .flat_map(|row| row.iter())
+    .max()
+    .copied() // Option<i32>
+    .unwrap_or(0); // Default to 0 if the matrix is empty
+
+    // Read the zone sums
+    let zone_sums: Vec<i32> = lines.next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Missing row sums"))??
+        .split_whitespace()
+        .map(|s| s.parse().expect("Invalid number in row sums"))
+        .collect();
+
+    for z in 1..(total_zones+1) {
+        let mut zone = Zone {
+            sum: zone_sums[(z-1) as usize],
+            points: Vec::new(),
+            done: false,
+        };
+        for i in 0..n {
+            for j in 0..n {
+                if zone_distribution[i][j] == z {
+                    zone.points.push([i as i32, j as i32]);
+                }
+            }
+        }
+        zones.push(zone);
+    }
+    Ok(matrix)
+}
+

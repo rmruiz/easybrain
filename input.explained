@@ -1,0 +1,25 @@
+#square size (6x6)
+6
+#columns sums (left to right
+11 16 9 14 10 17
+#rows sums (bottom to top
+11 5 16 16 13 16
+#numbers (bottom to top)
+#0,0 1,0 2,0 3,0 4,0 5,0
+2 8 3 8 1 9
+#1,0 1,1 2,1 3,1 4,1 5,1
+9 4 6 7 1 1
+5 4 7 9 9 2
+5 5 9 5 7 6
+4 5 9 4 7 7
+6 7 6 1 9 4
+#zones (bottom to top) same as before
+4 4 4 6 6 6
+4 5 5 6 6 6
+4 4 5 5 5 5
+3 3 3 3 2 2
+1 1 1 3 3 2
+1 1 1 2 2 2
+#sums of zones z1, z2, z3, etc
+20 15 10 7 15 10
+
